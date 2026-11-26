@@ -312,13 +312,13 @@ class SupportWindow(QWidget):
         title_row = QHBoxLayout(title_bar)
         title_row.setContentsMargins(8, 6, 6, 6)
         title_row.setSpacing(4)
-        self.share_button = self.button("Hide", "Exclude this window from screen capture (Ctrl+Alt+A)",
+        self.share_button = self.button("Stealth", "Exclude this window from screen capture (Ctrl+Alt+A)",
                                         self.set_share, self.settings.hide_from_share)
         self.ghost_button = self.button(
-            "Ghost", "Clicks pass through the window. Press Ctrl+Shift+Z to turn it off.",
+            "Nofocus", "Clicks pass through the window. Press Ctrl+Shift+Z to turn it off.",
             self.set_ghost, False,
         )
-        self.split_button = self.button("Split", "Show six copies with linked scrolling",
+        self.split_button = self.button("More", "Show six copies with linked scrolling",
                                         self.set_split, False)
         self.split_button.setEnabled(False)
         for button in (self.share_button, self.ghost_button, self.split_button):
@@ -493,7 +493,7 @@ class SupportWindow(QWidget):
         requested = self.settings.hide_from_share
         success = native.set_capture_exclusion(self.hwnd, requested)
         # The document panes are children of this top-level window.
-        self.share_button.setText("Hidden" if requested and success else "Hide")
+        self.share_button.setText("Stealth")
         if not success and requested:
             self.share_button.setChecked(False)
             self.set_status("Windows could not exclude this window from capture.", False)
@@ -517,12 +517,12 @@ class SupportWindow(QWidget):
         self.split_request += 1
         if enabled:
             if self.view and self.view.document_ready:
-                self.split_button.setText("Single")
+                self.split_button.setText("Less")
                 self.set_status(OPENING_SPLIT)
                 request = self.split_request
                 self.view.read_scroll_state(lambda state: self.show_split_views(state, request))
             return
-        self.split_button.setText("Split")
+        self.split_button.setText("More")
         if self.status.text() == OPENING_SPLIT:
             self.set_status("")
         if self.split:
