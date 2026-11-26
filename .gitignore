@@ -1,0 +1,6 @@
+.build/
+.venv/
+__pycache__/
+dist/
+notepad.spec
+/original_source/data/
