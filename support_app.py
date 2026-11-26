@@ -5,12 +5,13 @@ import os
 from pathlib import Path
 import sys
 import traceback
+import winreg
 
-from PySide6.QtCore import QEvent, QRect, QSize, QStandardPaths, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap, QRegion
+from PySide6.QtCore import QEvent, QSize, QStandardPaths, Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit,
-    QMessageBox, QPushButton, QSizePolicy, QSlider, QStackedWidget, QStyle,
+    QApplication, QGridLayout, QHBoxLayout, QLabel, QLayout,
+    QMessageBox, QPushButton, QScrollBar, QSizePolicy, QSlider, QStackedLayout, QStackedWidget,
     QToolButton, QVBoxLayout, QWidget,
 )
 from shiboken6 import delete
@@ -19,62 +20,66 @@ from browser import DocumentView, configure_portable_paths, make_profile, normal
 import win32 as native
 
 
-TITLE = "Support App"
-RESTORE_SIZE = 50
+TITLE = "Anti"
+DOC_URL_VARIABLE = "ANTI_GOOGLE_DOC_URL"
+DOC_URL_HELP = f"Set a valid {DOC_URL_VARIABLE} using set-doc-url.cmd."
+DEFAULT_OPACITY = 70
 MINIMUM_SIZE = QSize(440, 250)
 DEFAULT_SIZE = QSize(800, 680)
-PANIC, GHOST, GHOST_ALT, SHARE = range(1, 5)
+SPLIT_PANES = 6
+OPENING_SPLIT = "Opening six views…"
+PANIC, GHOST, GHOST_ALT, SHARE, VISIBILITY = range(1, 6)
 HOTKEYS = {
     PANIC: (native.MOD_CONTROL | native.MOD_SHIFT, ord("Z")),
     GHOST: (native.MOD_CONTROL | native.MOD_ALT, ord("Z")),
     GHOST_ALT: (native.MOD_CONTROL | native.MOD_ALT | native.MOD_SHIFT, ord("Z")),
     SHARE: (native.MOD_CONTROL | native.MOD_ALT, ord("A")),
+    VISIBILITY: (native.MOD_CONTROL | native.MOD_ALT, ord("Q")),
 }
 
 
 STYLES = """
-QWidget { color: #172339; font-size: 13px; }
-QWidget#shell { background: #fff; border: 1px solid #c8d2e0; }
-QWidget#titleBar { background: #edf3fb; border-bottom: 1px solid #d9e3f0; }
-QLabel#title { font-size: 13px; font-weight: 700; }
-QLabel#emptyTitle { font-size: 20px; font-weight: 650; }
-QLabel#emptyHelp, QLabel#status { color: #4a5e77; }
-QFrame#statusBar { background: #f2f6fd; border-bottom: 1px solid #dce5f2; }
-QWidget#docGrid { background: #d5deea; }
-QLineEdit {
-    background: #fff;
-    border: 1px solid #becce0;
-    border-radius: 6px;
-    padding: 5px 9px;
-    selection-background-color: #1f6feb;
-}
-QLineEdit:focus { border-color: #1f6feb; }
+QWidget { color: #f4f7ff; font-size: 14px; }
+QWidget#shell { background: #151e2b; border: 1px solid #54647d; }
+QWidget#titleBar { background: #202d40; border-bottom: 1px solid #3a4b63; }
+QLabel#emptyTitle { font-size: 23px; font-weight: 700; }
+QLabel#emptyHelp, QLabel#status { color: #cbd8ec; }
+QLabel#opacityValue { color: #f4f7ff; font-weight: 700; }
+QWidget#statusPanel { background: #151e2b; }
+QWidget#docGrid { background: #45556d; }
+QLabel#mirrorCover { background: #111923; }
+QScrollBar#splitScroll:vertical { background: #202d40; width: 12px; }
+QScrollBar#splitScroll::handle:vertical { background: #697e9c; min-height: 32px; border-radius: 4px; }
+QScrollBar#splitScroll::add-line:vertical,
+QScrollBar#splitScroll::sub-line:vertical { height: 0; }
 QPushButton {
-    background: #f3f6fa;
-    border: 1px solid #d1dbea;
+    background: #26354b;
+    border: 1px solid #526784;
     border-radius: 6px;
     padding: 4px 9px;
+    font-weight: 600;
 }
-QPushButton:hover { background: #e5eefb; border-color: #a7bfe0; }
-QPushButton:checked { background: #deebff; color: #174f9f; border-color: #91b8f4; }
-QPushButton:disabled { color: #8995a6; background: #f6f8fb; }
-QPushButton#load, QPushButton#restore { background: #1f6feb; color: white; border-color: #1f6feb; }
-QPushButton#load:hover, QPushButton#restore:hover { background: #185dca; }
-QPushButton#restore { border-radius: 25px; padding: 0; }
-QToolButton { border: none; background: transparent; padding: 4px 7px; border-radius: 4px; }
-QToolButton:hover { background: #dbe8fb; }
-QToolButton#close:hover { background: #f7d9df; }
-QSlider::groove:horizontal { height: 4px; border-radius: 2px; background: #cdd9ea; }
-QSlider::handle:horizontal { width: 12px; margin: -4px 0; border-radius: 6px; background: #1f6feb; }
+QPushButton:hover { background: #314665; border-color: #8baddb; }
+QPushButton:checked { background: #284d77; color: #fff; border-color: #a1caff; }
+QPushButton:disabled { color: #9baac0; background: #202b3c; }
+QPushButton:focus, QToolButton:focus { border: 1px solid #97c4ff; }
+QToolButton {
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 4px 4px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+QToolButton:hover { background: #314665; }
+QSlider::groove:horizontal { height: 4px; border-radius: 2px; background: #617595; }
+QSlider::handle:horizontal { width: 12px; margin: -4px 0; border-radius: 6px; background: #a8ceff; }
 """
 
 
 @dataclass
 class Settings:
-    last_doc_url: str = ""
-    opacity: int = 100
+    opacity: int = DEFAULT_OPACITY
     hide_from_share: bool = False
-    hide_from_taskbar: bool = False
 
     @classmethod
     def read(cls, path):
@@ -84,13 +89,10 @@ class Settings:
             return cls()
         if not isinstance(data, dict):
             return cls()
-        url = data.get("last_doc_url", "")
         opacity = data.get("opacity")
         return cls(
-            last_doc_url=normalize_document_url(url) if isinstance(url, str) else "",
-            opacity=max(20, min(100, opacity)) if type(opacity) is int else 100,
+            opacity=max(20, min(100, opacity)) if type(opacity) is int else DEFAULT_OPACITY,
             hide_from_share=data.get("hide_from_share") is True,
-            hide_from_taskbar=data.get("hide_from_taskbar") is True,
         )
 
     def write(self, path):
@@ -99,47 +101,174 @@ class Settings:
         os.replace(temporary, path)
 
 
-def document_icon(white=False):
-    pixmap = QPixmap(64, 64)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    color = QColor("#ffffff" if white else "#1f6feb")
-    ink = QColor("#1f6feb" if white else "#ffffff")
-    page = QPainterPath()
-    page.moveTo(15, 6)
-    page.lineTo(39, 6)
-    page.lineTo(54, 21)
-    page.lineTo(54, 55)
-    page.quadTo(54, 59, 50, 59)
-    page.lineTo(15, 59)
-    page.quadTo(11, 59, 11, 55)
-    page.lineTo(11, 10)
-    page.quadTo(11, 6, 15, 6)
-    page.closeSubpath()
-    painter.fillPath(page, color)
-    fold = QPainterPath()
-    fold.moveTo(39, 6)
-    fold.lineTo(39, 21)
-    fold.lineTo(54, 21)
-    fold.closeSubpath()
-    painter.fillPath(fold, QColor("#bed9ff"))
-    pen = QPen(ink, 3)
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-    painter.setPen(pen)
-    for y, width in ((32, 26), (40, 26), (48, 17)):
-        painter.drawLine(20, y, 20 + width, y)
-    painter.end()
-    return QIcon(pixmap)
+def configured_document_link():
+    # Read persistent values first so launches from an older terminal see updates.
+    for hive, path in (
+        (winreg.HKEY_CURRENT_USER, "Environment"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+    ):
+        try:
+            with winreg.OpenKey(hive, path) as key:
+                value, kind = winreg.QueryValueEx(key, DOC_URL_VARIABLE)
+        except OSError:
+            continue
+        if isinstance(value, str) and value.strip():
+            return winreg.ExpandEnvironmentStrings(value) if kind == winreg.REG_EXPAND_SZ else value
+    return os.environ.get(DOC_URL_VARIABLE, "")
 
 
 class DragGrip(QToolButton):
+    def __init__(self, parent=None):
+        super().__init__(parent, text="Move")
+        self.drag_offset = None
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            if self.window().windowHandle().startSystemMove():
-                event.accept()
-                return
+            self.drag_offset = event.globalPosition().toPoint() - self.window().pos()
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.drag_offset is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.window().move(event.globalPosition().toPoint() - self.drag_offset)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.drag_offset = None
+        super().mouseReleaseEvent(event)
+
+
+class MirrorPane(QWidget):
+    def __init__(self, number, profile, parent):
+        super().__init__(parent)
+        self.setAccessibleName(f"Document view {number}")
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        layers = QStackedLayout(self)
+        layers.setStackingMode(QStackedLayout.StackingMode.StackAll)
+        self.view = DocumentView(profile, self, mirrored=True)
+        self.view.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self.view.setAccessibleName(self.accessibleName())
+        layers.addWidget(self.view)
+        self.cover = QLabel(
+            "Loading document…", objectName="mirrorCover", alignment=Qt.AlignmentFlag.AlignCenter,
+        )
+        self.cover.setWordWrap(True)
+        layers.addWidget(self.cover)
+        layers.setCurrentWidget(self.cover)
+        self.view.readiness_changed.connect(lambda ready: self.cover.setVisible(not ready))
+        self.view.status_changed.connect(self.show_status)
+
+    def show_status(self, message, _failed):
+        if message:
+            self.cover.setText(message)
+
+
+class SplitPages(QWidget):
+    def __init__(self, profile, parent):
+        super().__init__(parent)
+        self.profile = profile
+        self.panes = []
+        self.document_width = 0
+        self.viewport_height = 0
+        self.columns = 0
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.content = QWidget(self, objectName="docGrid")
+        self.grid = QGridLayout(self.content)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(2)
+        layout.addWidget(self.content, 1)
+        self.scrollbar = QScrollBar(Qt.Orientation.Vertical, objectName="splitScroll")
+        self.scrollbar.setAccessibleName("Scroll all six views")
+        self.scrollbar.setSingleStep(64)
+        self.scrollbar.setRange(0, 0)
+        self.scrollbar.valueChanged.connect(self.apply_scroll_position)
+        layout.addWidget(self.scrollbar)
+        self.zoom_timer = QTimer(self, interval=0, singleShot=True, timeout=self.fit_views)
+        self.range_timer = QTimer(self, interval=0, singleShot=True, timeout=self.update_scroll_range)
+
+    def load_views(self, url, state):
+        self.clear()
+        self.document_width = state["pageWidth"]
+        start = round(state["scrollTop"])
+        self.scrollbar.setRange(0, max(start, state["scrollHeight"]))
+        self.scrollbar.setValue(start)
+        for index in range(SPLIT_PANES):
+            pane = MirrorPane(index + 1, self.profile, self.content)
+            pane.view.scroll_requested.connect(self.scroll_by)
+            pane.view.viewport_changed.connect(self.range_timer.start)
+            pane.view.readiness_changed.connect(lambda _ready: self.range_timer.start())
+            self.panes.append(pane)
+        self.arrange_panes()
+        self.apply_scroll_position(start)
+        for pane in self.panes:
+            pane.view.load(url)
+        self.zoom_timer.start()
+
+    def clear(self):
+        self.zoom_timer.stop()
+        self.range_timer.stop()
+        for pane in self.panes:
+            self.grid.removeWidget(pane)
+            pane.hide()
+            pane.view.dispose()
+            pane.deleteLater()
+        self.panes.clear()
+        self.columns = 0
+        self.viewport_height = 0
+        self.scrollbar.setRange(0, 0)
+
+    def arrange_panes(self):
+        columns = 3 if self.width() >= 640 else 2
+        if not self.panes or columns == self.columns:
+            return
+        self.columns = columns
+        for index in range(3):
+            self.grid.setColumnStretch(index, int(index < columns))
+            self.grid.setRowStretch(index, int(index < SPLIT_PANES // columns))
+        for index, pane in enumerate(self.panes):
+            self.grid.addWidget(pane, *divmod(index, columns))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.arrange_panes()
+        if self.panes:
+            self.zoom_timer.start()
+
+    def fit_views(self):
+        if not self.panes:
+            return
+        width = min(pane.view.width() for pane in self.panes)
+        if width > 0:
+            zoom = max(0.25, min(5.0, width / self.document_width))
+            for pane in self.panes:
+                pane.view.set_mirror_zoom(zoom)
+
+    def wheelEvent(self, event):
+        if self.panes and not event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            delta = event.pixelDelta().y() or round(event.angleDelta().y() / 120 * 64)
+            self.scroll_by(round(delta / self.panes[0].view.zoomFactor()))
+        event.accept()
+
+    def update_scroll_range(self):
+        measured = [pane.view for pane in self.panes if pane.view.viewport_height and pane.view.scroll_extent]
+        if not measured:
+            return
+        self.viewport_height = min(view.viewport_height for view in measured)
+        limit = min(view.scroll_extent for view in measured) - self.viewport_height
+        if len(measured) < len(self.panes):
+            # Keep the startup position until all views report their scroll ranges.
+            limit = max(limit, self.scrollbar.value())
+        self.scrollbar.setPageStep(self.viewport_height)
+        self.scrollbar.setRange(0, max(0, limit))
+        self.apply_scroll_position(self.scrollbar.value())
+
+    def apply_scroll_position(self, position):
+        for pane in self.panes:
+            pane.view.set_mirror_scroll(position, self.viewport_height)
+
+    def scroll_by(self, delta):
+        self.scrollbar.setValue(self.scrollbar.value() - delta)
 
 
 class SupportWindow(QWidget):
@@ -150,37 +279,25 @@ class SupportWindow(QWidget):
         self.config_path = config_path
         self.settings = settings
         self.doc_url = ""
+        self.view = None
         self.ghost = False
         self.split = False
-        self.collapsed = False
-        self.unsplit_geometry = QRect()
-        self.expanded_geometry = QRect()
+        self.split_request = 0
         self.hwnd = None
         self.fallback_hotkeys = {}
         self.hotkeys_registered = []
 
         self.setObjectName("MollySupportDoc")
         self.setWindowTitle(TITLE)
-        self.setWindowIcon(document_icon())
         self.setStyleSheet(STYLES)
         self.config_timer = QTimer(self, interval=250, singleShot=True, timeout=self.save_settings)
         self.hotkey_timer = QTimer(self, interval=65, timeout=self.poll_hotkeys)
 
-        self.stack = QStackedWidget(self)
         self.shell = QWidget(objectName="shell")
-        self.stack.addWidget(self.shell)
-        self.restore_button = QPushButton(objectName="restore")
-        self.restore_button.setFixedSize(RESTORE_SIZE, RESTORE_SIZE)
-        self.restore_button.setIcon(document_icon(white=True))
-        self.restore_button.setIconSize(QSize(23, 23))
-        self.restore_button.setToolTip("Double-click to restore Support App")
-        self.restore_button.setAccessibleName("Restore Support App")
-        self.restore_button.installEventFilter(self)
-        self.stack.addWidget(self.restore_button)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
-        layout.addWidget(self.stack)
+        layout.addWidget(self.shell)
         self.setup_shell()
         self.setMinimumSize(MINIMUM_SIZE)
         self.resize(DEFAULT_SIZE.boundedTo(self.screen().availableGeometry().size()))
@@ -191,58 +308,21 @@ class SupportWindow(QWidget):
         shell_layout.setSpacing(0)
         shell_layout.setContentsMargins(1, 1, 1, 1)
 
-        title_bar = QWidget(objectName="titleBar")
+        title_bar = QWidget(self.shell, objectName="titleBar")
         title_row = QHBoxLayout(title_bar)
-        title_row.setContentsMargins(10, 4, 7, 4)
-        title_row.setSpacing(6)
-        icon = QLabel()
-        icon.setPixmap(self.windowIcon().pixmap(17, 17))
-        title_row.addWidget(icon)
-        title_row.addWidget(QLabel(TITLE, objectName="title"))
-        title_row.addStretch()
-        grip = DragGrip(text="Move")
-        grip.setToolTip("Drag to move the window")
-        grip.setCursor(Qt.CursorShape.SizeAllCursor)
-        title_row.addWidget(grip)
-        minimize = self.system_button(QStyle.StandardPixmap.SP_TitleBarMinButton,
-                                      "Minimize", self.showMinimized)
-        close = self.system_button(QStyle.StandardPixmap.SP_TitleBarCloseButton, "Close", self.close)
-        close.setObjectName("close")
-        title_row.addWidget(minimize)
-        title_row.addWidget(close)
-        shell_layout.addWidget(title_bar)
-
-        link_row = QHBoxLayout()
-        link_row.setContentsMargins(9, 7, 9, 4)
-        self.link = QLineEdit(placeholderText="Paste a Google Docs link")
-        self.link.setAccessibleName("Google Docs link")
-        self.link.returnPressed.connect(self.load_document)
-        self.load_button = self.button("Load", "Load Google Doc", self.load_document)
-        self.load_button.setObjectName("load")
-        link_row.addWidget(self.link, 1)
-        link_row.addWidget(self.load_button)
-        shell_layout.addLayout(link_row)
-
-        controls = QHBoxLayout()
-        controls.setContentsMargins(9, 2, 9, 7)
-        controls.setSpacing(5)
+        title_row.setContentsMargins(8, 6, 6, 6)
+        title_row.setSpacing(4)
         self.share_button = self.button("Hide", "Exclude this window from screen capture (Ctrl+Alt+A)",
                                         self.set_share, self.settings.hide_from_share)
         self.ghost_button = self.button(
             "Ghost", "Clicks pass through the window. Press Ctrl+Shift+Z to turn it off.",
             self.set_ghost, False,
         )
-        self.split_button = self.button("Split", "Fill the screen with this same document, six times",
+        self.split_button = self.button("Split", "Show six copies with linked scrolling",
                                         self.set_split, False)
         self.split_button.setEnabled(False)
-        self.taskbar_button = self.button("Taskbar", "Hide the taskbar button", self.set_taskbar,
-                                          self.settings.hide_from_taskbar)
-        self.taskbar_button.setAccessibleName("Hide taskbar button")
-        self.collapse_button = self.button("Collapse", "Collapse to a restore button", self.collapse_window)
-        for button in (self.share_button, self.ghost_button, self.split_button,
-                       self.taskbar_button, self.collapse_button):
-            controls.addWidget(button)
-        controls.addStretch()
+        for button in (self.share_button, self.ghost_button, self.split_button):
+            title_row.addWidget(button)
         self.opacity = QSlider(Qt.Orientation.Horizontal)
         self.opacity.setRange(20, 100)
         self.opacity.setValue(self.settings.opacity)
@@ -251,44 +331,53 @@ class SupportWindow(QWidget):
         self.opacity.setAccessibleName("Window opacity")
         self.opacity.setToolTip("Window opacity")
         self.opacity.valueChanged.connect(self.set_opacity)
-        self.opacity_label = QLabel(f"{self.settings.opacity}%", alignment=Qt.AlignmentFlag.AlignRight |
-                                                                             Qt.AlignmentFlag.AlignVCenter)
+        self.opacity_label = QLabel(
+            f"{self.settings.opacity}%",
+            title_bar,
+            objectName="opacityValue",
+            alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
+        self.opacity_label.ensurePolished()
         self.opacity_label.setFixedWidth(self.opacity_label.fontMetrics().horizontalAdvance("100%") + 2)
-        controls.addWidget(self.opacity, 1)
-        controls.addWidget(self.opacity_label)
-        shell_layout.addLayout(controls)
+        title_row.addWidget(self.opacity, 1)
+        title_row.addWidget(self.opacity_label)
+        title_row.addStretch()
+        grip = DragGrip()
+        grip.setToolTip("Drag to move the window")
+        title_row.addWidget(grip)
+        shell_layout.addWidget(title_bar)
 
-        self.status_bar = QFrame(objectName="statusBar")
-        status_row = QHBoxLayout(self.status_bar)
-        status_row.setContentsMargins(10, 3, 10, 3)
-        self.status = QLabel(objectName="status")
-        self.status.setWordWrap(True)
-        self.open_browser = self.button("Open in browser", "Open this document in your default browser",
-                                        self.open_document_in_browser)
-        status_row.addWidget(self.status, 1)
-        status_row.addWidget(self.open_browser)
-        self.status_bar.hide()
-        shell_layout.addWidget(self.status_bar)
-
+        content = QWidget()
+        layers = QStackedLayout(content)
+        layers.setStackingMode(QStackedLayout.StackingMode.StackAll)
         self.documents = QStackedWidget()
         placeholder = QWidget()
         empty_layout = QVBoxLayout(placeholder)
         empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        empty_icon = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
-        empty_icon.setPixmap(self.windowIcon().pixmap(42, 42))
-        empty_layout.addWidget(empty_icon)
-        empty_layout.addWidget(QLabel("Open a Google Doc", objectName="emptyTitle",
-                                      alignment=Qt.AlignmentFlag.AlignCenter))
-        empty_layout.addWidget(QLabel("Paste its link above, then press Enter.", objectName="emptyHelp",
+        self.empty_title = QLabel("No Google Doc configured", objectName="emptyTitle",
+                                  alignment=Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(self.empty_title)
+        empty_layout.addWidget(QLabel("Run set-doc-url.cmd, then reopen Anti.", objectName="emptyHelp",
                                       alignment=Qt.AlignmentFlag.AlignCenter))
         self.documents.addWidget(placeholder)
-        doc_panel = QWidget(objectName="docGrid")
-        self.grid = QGridLayout(doc_panel)
-        self.grid.setContentsMargins(0, 0, 0, 0)
-        self.grid.setSpacing(1)
-        self.documents.addWidget(doc_panel)
-        shell_layout.addWidget(self.documents, 1)
-        self.views = []
+        self.split_pages = SplitPages(self.profile, self.documents)
+        self.documents.addWidget(self.split_pages)
+        layers.addWidget(self.documents)
+
+        self.status_panel = QWidget(objectName="statusPanel")
+        status_layout = QVBoxLayout(self.status_panel)
+        status_layout.setContentsMargins(20, 20, 20, 20)
+        status_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status = QLabel(objectName="status", alignment=Qt.AlignmentFlag.AlignCenter)
+        self.status.setWordWrap(True)
+        status_layout.addWidget(self.status)
+        self.open_browser = self.button("Open in browser", "Open this document in your default browser",
+                                        self.open_document_in_browser)
+        status_layout.addWidget(self.open_browser, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layers.addWidget(self.status_panel)
+        layers.setCurrentWidget(self.status_panel)
+        self.status_panel.hide()
+        shell_layout.addWidget(content, 1)
 
     def button(self, text, tooltip, callback, checked=None):
         button = QPushButton(text)
@@ -301,30 +390,18 @@ class SupportWindow(QWidget):
             button.toggled.connect(callback)
         return button
 
-    def system_button(self, icon, title, callback):
-        button = QToolButton()
-        button.setIcon(self.style().standardIcon(icon))
-        button.setToolTip(title)
-        button.setAccessibleName(title)
-        button.clicked.connect(callback)
-        return button
-
     def initialize_window(self):
         self.attach_native_window(int(self.winId()))
         self.show()
         self.apply_window_state()
-        if self.settings.last_doc_url:
-            self.link.setText(self.settings.last_doc_url)
-            self.load_document()
-        else:
-            self.link.setFocus()
+        self.load_configured_document()
 
     def attach_native_window(self, hwnd):
         self.detach_native_window()
         self.hwnd = hwnd
         native.configure_frame(hwnd)
         if not native.set_property(hwnd, native.WINDOW_PROPERTY, 1):
-            raise RuntimeError("Could not register the Support App window.")
+            raise RuntimeError(f"Could not register the {TITLE} window.")
         self.configure_native_styles()
         native.set_capture_exclusion(hwnd, self.settings.hide_from_share)
         for action, (modifiers, key) in HOTKEYS.items():
@@ -355,37 +432,35 @@ class SupportWindow(QWidget):
                 QTimer.singleShot(0, self.apply_window_state)
         return super().event(event)
 
-    def add_view(self, index):
-        view = DocumentView(self.profile, self.documents.widget(1))
-        view.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
-        if index == 0:
-            view.status_changed.connect(self.set_status)
-        self.grid.addWidget(view, index // 3, index % 3)
-        self.views.append(view)
-        view.load(QUrl(self.doc_url))
-
-    def load_document(self):
-        url = normalize_document_url(self.link.text())
+    def load_configured_document(self):
+        value = configured_document_link().strip()
+        url = normalize_document_url(value)
         if not url:
-            self.set_status("Enter a Google Docs document link.", False)
-            self.link.setFocus()
+            if self.view is None:
+                self.empty_title.setText("Invalid Google Docs URL" if value else "No Google Doc configured")
+            else:
+                self.set_status(DOC_URL_HELP)
+            return
+        if url == self.doc_url and self.view and (self.view.loading or self.view.document_ready):
+            if self.status.text() == DOC_URL_HELP:
+                self.set_status("")
             return
         self.doc_url = url
-        self.link.setText(url)
-        self.settings.last_doc_url = url
-        self.config_timer.start()
-        self.split_button.setEnabled(True)
-        if not self.views:
-            self.add_view(0)
-            self.documents.setCurrentIndex(1)
-        else:
-            for view in self.views:
-                view.load(QUrl(url))
+        if self.view is None:
+            self.view = DocumentView(self.profile, self.documents)
+            self.view.status_changed.connect(self.set_status)
+            self.view.readiness_changed.connect(self.update_split_control)
+            self.documents.addWidget(self.view)
+        self.split_button.setChecked(False)
+        self.documents.setCurrentWidget(self.view)
+        self.view.load(QUrl(url))
 
     def set_status(self, text, browser_available=False):
         self.status.setText(text)
         self.open_browser.setVisible(browser_available and bool(self.doc_url))
-        self.status_bar.setVisible(bool(text))
+        self.status_panel.setVisible(bool(text))
+        if text:
+            self.status_panel.raise_()
 
     def open_document_in_browser(self):
         if self.doc_url:
@@ -395,13 +470,12 @@ class SupportWindow(QWidget):
         try:
             self.settings.write(self.config_path)
         except OSError:
-            self.set_status("Windows could not save your Support App settings.", False)
+            self.set_status(f"Windows could not save your {TITLE} settings.", False)
 
     def apply_window_state(self):
         if self.hwnd is None:
             return
-        hide_taskbar = self.collapsed or self.settings.hide_from_taskbar
-        refresh_taskbar = self.isVisible() and native.needs_taskbar_update(self.hwnd, hide_taskbar)
+        refresh_taskbar = self.isVisible() and native.needs_taskbar_update(self.hwnd)
         if refresh_taskbar:
             native.show_window(self.hwnd, 0)  # SW_HIDE
         try:
@@ -413,14 +487,12 @@ class SupportWindow(QWidget):
             self.apply_capture()
 
     def configure_native_styles(self):
-        native.configure_window(self.hwnd, 100 if self.collapsed else self.settings.opacity,
-                                self.ghost and not self.collapsed,
-                                self.collapsed or self.settings.hide_from_taskbar)
+        native.configure_window(self.hwnd, self.settings.opacity, self.ghost)
 
     def apply_capture(self):
         requested = self.settings.hide_from_share
         success = native.set_capture_exclusion(self.hwnd, requested)
-        # All six Chromium views are children of this top-level window.
+        # The document panes are children of this top-level window.
         self.share_button.setText("Hidden" if requested and success else "Hide")
         if not success and requested:
             self.share_button.setChecked(False)
@@ -441,63 +513,41 @@ class SupportWindow(QWidget):
         self.apply_window_state()
         self.config_timer.start()
 
-    def set_taskbar(self, hidden):
-        self.settings.hide_from_taskbar = hidden
-        self.apply_window_state()
-        self.config_timer.start()
-
     def set_split(self, enabled):
-        self.split = enabled
-        self.split_button.setText("Single" if enabled else "Split")
-        for column in (1, 2):
-            self.grid.setColumnStretch(column, int(enabled))
-        self.grid.setColumnStretch(0, 1)
-        self.grid.setRowStretch(0, 1)
-        self.grid.setRowStretch(1, int(enabled))
+        self.split_request += 1
         if enabled:
-            self.unsplit_geometry = self.geometry()
-            self.setGeometry(self.screen().availableGeometry())
-            for index in range(1, 6):
-                self.add_view(index)
-        else:
-            for view in self.views[1:]:
-                self.grid.removeWidget(view)
-                view.hide()
-                view.dispose()
-            del self.views[1:]
-            self.setGeometry(self.unsplit_geometry)
-
-    def collapse_window(self):
-        self.expanded_geometry = self.geometry()
-        area = self.screen().availableGeometry()
-        self.collapsed = True
-        self.stack.setCurrentWidget(self.restore_button)
-        self.setFixedSize(RESTORE_SIZE, RESTORE_SIZE)
-        self.move(area.left() + 16, area.bottom() - RESTORE_SIZE - 15)
-        self.setMask(QRegion(self.rect(), QRegion.RegionType.Ellipse))
-        self.apply_window_state()
-
-    def restore_window(self):
-        if not self.collapsed:
+            if self.view and self.view.document_ready:
+                self.split_button.setText("Single")
+                self.set_status(OPENING_SPLIT)
+                request = self.split_request
+                self.view.read_scroll_state(lambda state: self.show_split_views(state, request))
             return
-        self.collapsed = False
-        self.clearMask()
-        self.setMaximumSize(16777215, 16777215)
-        self.setMinimumSize(MINIMUM_SIZE)
-        self.stack.setCurrentWidget(self.shell)
-        self.setGeometry(self.expanded_geometry)
-        self.apply_window_state()
+        self.split_button.setText("Split")
+        if self.status.text() == OPENING_SPLIT:
+            self.set_status("")
+        if self.split:
+            position = self.split_pages.scrollbar.value()
+            self.documents.setCurrentWidget(self.view)
+            self.split_pages.clear()
+            self.split = False
+            self.view.seek_to(position)
 
-    def eventFilter(self, watched, event):
-        if watched is self.restore_button:
-            double_click = (event.type() == QEvent.Type.MouseButtonDblClick
-                            and event.button() == Qt.MouseButton.LeftButton)
-            confirmed = (event.type() == QEvent.Type.KeyPress
-                         and event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Enter, Qt.Key.Key_Return))
-            if double_click or confirmed:
-                self.restore_window()
-                return True
-        return super().eventFilter(watched, event)
+    def update_split_control(self, ready):
+        self.split_button.setEnabled(ready or self.split_button.isChecked())
+        if ready and self.split_button.isChecked() and not self.split:
+            self.set_split(True)
+
+    def show_split_views(self, state, request):
+        if request != self.split_request or not self.split_button.isChecked():
+            return
+        if not state or not state["pageWidth"]:
+            self.split_button.setChecked(False)
+            self.set_status("The document could not be opened in Split.", True)
+            return
+        self.split = True
+        self.set_status("")
+        self.documents.setCurrentWidget(self.split_pages)
+        self.split_pages.load_views(self.view.url(), state)
 
     def poll_hotkeys(self):
         modifiers = native.held_modifiers()
@@ -515,15 +565,27 @@ class SupportWindow(QWidget):
             self.ghost_button.toggle()
         elif action == SHARE:
             self.share_button.toggle()
+        elif action == VISIBILITY:
+            if self.isVisible() and not self.isMinimized():
+                self.hide()
+            else:
+                self.restore_window()
 
-    def activate_existing(self):
-        self.restore_window()
-        if self.isMinimized():
+    def restore_window(self):
+        if not self.isVisible() or self.isMinimized():
             self.showNormal()
             self.apply_window_state()
         self.raise_()
         self.activateWindow()
         native.set_foreground(self.hwnd)
+
+    def activate_existing(self):
+        self.restore_window()
+        self.load_configured_document()
+        if self.split:
+            for pane in self.split_pages.panes:
+                if pane.view.renderer_failed:
+                    pane.view.load(self.view.url())
 
     def nativeEvent(self, event_type, message):
         if event_type != b"windows_generic_MSG":
@@ -539,18 +601,23 @@ class SupportWindow(QWidget):
             if data.message == native.WM_HOTKEY:
                 self.run_hotkey(data.wParam)
                 return True, 0
-            if data.message == native.WM_NCHITTEST and not self.collapsed and not self.ghost:
+            if data.message == native.WM_NCHITTEST and not self.ghost:
                 edge = native.hit_test(hwnd, data.lParam, round(6 * self.devicePixelRatioF()))
                 if edge:
                     return True, edge
         return super().nativeEvent(event_type, message)
 
     def closeEvent(self, event):
+        self.split_request += 1
+        self.split_pages.clear()
+        if self.view is not None:
+            self.view.dispose()
         if self.hwnd:
             self.config_timer.stop()
             self.detach_native_window()
             self.save_settings()
         super().closeEvent(event)
+        QTimer.singleShot(0, QApplication.instance().quit)
 
 
 def main():
@@ -584,7 +651,7 @@ def main():
                 (app_data / "startup-error.log").write_text(error, encoding="utf-8")
             except OSError:
                 pass
-            QMessageBox.critical(None, TITLE, "Support App could not start.\n\n" + error.splitlines()[-1])
+            QMessageBox.critical(None, TITLE, f"{TITLE} could not start.\n\n" + error.splitlines()[-1])
             return 1
     finally:
         native.close_handle(handle)

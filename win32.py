@@ -118,17 +118,16 @@ def configure_frame(hwnd):
     update_style(hwnd, GWL_STYLE, get_window_style(hwnd, GWL_STYLE) | WS_THICKFRAME)
 
 
-def needs_taskbar_update(hwnd, hide_taskbar):
+def needs_taskbar_update(hwnd):
     style = get_window_style(hwnd, GWL_EXSTYLE)
-    target = WS_EX_TOOLWINDOW if hide_taskbar else WS_EX_APPWINDOW
-    return style & (WS_EX_APPWINDOW | WS_EX_TOOLWINDOW) != target
+    return style & (WS_EX_APPWINDOW | WS_EX_TOOLWINDOW) != WS_EX_TOOLWINDOW
 
 
-def configure_window(hwnd, opacity, ghost, hide_taskbar):
+def configure_window(hwnd, opacity, ghost):
     style = get_window_style(hwnd, GWL_EXSTYLE)
     style &= ~(WS_EX_APPWINDOW | WS_EX_TOOLWINDOW | WS_EX_LAYERED |
                WS_EX_TRANSPARENT | WS_EX_NOACTIVATE)
-    style |= WS_EX_TOOLWINDOW if hide_taskbar else WS_EX_APPWINDOW
+    style |= WS_EX_TOOLWINDOW
     if ghost:
         style |= WS_EX_TRANSPARENT | WS_EX_NOACTIVATE
     if ghost or opacity < 100:

@@ -7,7 +7,11 @@
     const style = document.createElement("style");
     style.textContent = `
         html, body, .kix-appview, .kix-appview-editor, .kix-page, .kix-page-paginated {
-            background: #fff !important;
+            background: #111923 !important;
+            color: #f4f7ff !important;
+        }
+        canvas.kix-canvas-tile-content {
+            filter: invert(1) hue-rotate(180deg) !important;
         }
         #docs-chrome, #docs-header, #docs-titlebar-container, #docs-menubars,
         #docs-toolbar-wrapper, #docs-rulers, .docs-ruler, .docs-ruler-container,
@@ -26,7 +30,7 @@
             width: 100% !important;
         }
         .kix-appview-editor {
-            height: 100vh !important;
+            height: var(--support-editor-height, 100vh) !important;
             overflow-x: hidden !important;
             scrollbar-width: none;
         }
@@ -37,20 +41,74 @@
             box-shadow: none !important;
             border-color: transparent !important;
         }
+        .kix-appview-editor.anti-mirror-editor {
+            overflow-y: hidden !important;
+        }
     `;
+
+    const editorElement = () => document.querySelector(".kix-appview-editor");
+    const pagesIn = editor => {
+        const paginated = editor.querySelectorAll(".kix-page-paginated");
+        return [...(paginated.length ? paginated : editor.querySelectorAll(".kix-page"))];
+    };
+
+    let mirrorEditor;
+    let mirrorPosition = 0;
+
+    function moveEditor(editor, position) {
+        const available = Math.max(0, editor.scrollHeight - editor.clientHeight);
+        const target = Math.min(position, available);
+        if (Math.abs(editor.scrollTop - target) > 1) editor.scrollTop = target;
+        return target;
+    }
+
+    function enforceMirrorPosition() {
+        moveEditor(mirrorEditor, mirrorPosition);
+    }
+
+    function positionMirror(editor, position, sharedHeight) {
+        if (mirrorEditor !== editor) {
+            mirrorEditor?.removeEventListener("scroll", enforceMirrorPosition);
+            mirrorEditor = editor;
+            mirrorEditor.addEventListener("scroll", enforceMirrorPosition, {passive: true});
+        }
+        mirrorPosition = position;
+        editor.classList.add("anti-mirror-editor");
+        const height = Math.min(window.innerHeight, sharedHeight || window.innerHeight);
+        editor.style.setProperty("--support-editor-height", `${height}px`);
+        enforceMirrorPosition();
+    }
+
+    globalThis.supportAppScrollMirror = (position, sharedHeight) => {
+        const editor = editorElement();
+        if (editor && style.isConnected) positionMirror(editor, position, sharedHeight);
+    };
 
     // The live editor creates its canvas asynchronously. Leave sign-in,
     // permissions, and loading pages intact until an editor is available.
-    globalThis.supportAppMetrics = () => {
-        const editor = document.querySelector(".kix-appview-editor");
-        const page = editor?.querySelector(".kix-page-paginated, .kix-page");
-        if (!page || !page.offsetWidth) {
+    globalThis.supportAppMetrics = (position = null, sharedHeight = 0, mirrored = false) => {
+        const editor = editorElement();
+        if (!editor || !pagesIn(editor).some(page => page.offsetWidth)) {
             return null;
         }
         if (!style.isConnected) {
             (document.head || document.documentElement).append(style);
             window.dispatchEvent(new Event("resize"));
         }
+        let expected = position;
+        if (mirrored) {
+            positionMirror(editor, position, sharedHeight);
+        } else if (position !== null) {
+            expected = moveEditor(editor, position);
+        }
+        const editorBounds = editor.getBoundingClientRect();
+        const pages = pagesIn(editor);
+        const visiblePage = pages.find(node => {
+            const bounds = node.getBoundingClientRect();
+            return bounds.top < editorBounds.bottom && bounds.bottom > editorBounds.top;
+        });
+        const page = visiblePage || pages[0];
+        if (!page) return null;
         const tiles = page.closest(".kix-rotatingtilemanager");
         if (tiles) {
             const gutter = tiles.getBoundingClientRect().left - page.getBoundingClientRect().left;
@@ -62,6 +120,11 @@
         return {
             pageWidth: page.getBoundingClientRect().width,
             viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            scrollHeight: editor.scrollHeight,
+            scrollTop: editor.scrollTop,
+            positionReady: expected === null || (Math.abs(editor.scrollTop - expected) <= 3 &&
+                (!mirrored || !!visiblePage)),
         };
     };
 

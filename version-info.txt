@@ -12,7 +12,7 @@ VSVersionInfo(
     kids=[
         StringFileInfo([
             StringTable('040904B0', [
-                StringStruct('FileDescription', 'Support App'),
+                StringStruct('FileDescription', 'Anti'),
                 StringStruct('FileVersion', '1.0.0'),
                 StringStruct('InternalName', 'MollySupportDoc'),
                 StringStruct('OriginalFilename', 'notepad.exe'),
