@@ -11,7 +11,7 @@ from PySide6.QtCore import QEvent, QSize, QStandardPaths, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QApplication, QGridLayout, QHBoxLayout, QLabel, QLayout,
-    QMessageBox, QPushButton, QScrollBar, QSizePolicy, QSlider, QStackedLayout, QStackedWidget,
+    QPushButton, QScrollBar, QSizePolicy, QSlider, QStackedLayout, QStackedWidget,
     QToolButton, QVBoxLayout, QWidget,
 )
 from shiboken6 import delete
@@ -312,14 +312,9 @@ class SupportWindow(QWidget):
         title_row = QHBoxLayout(title_bar)
         title_row.setContentsMargins(8, 6, 6, 6)
         title_row.setSpacing(4)
-        self.share_button = self.button("Stealth", "Exclude this window from screen capture (Ctrl+Alt+A)",
-                                        self.set_share, self.settings.hide_from_share)
-        self.ghost_button = self.button(
-            "Nofocus", "Clicks pass through the window. Press Ctrl+Shift+Z to turn it off.",
-            self.set_ghost, False,
-        )
-        self.split_button = self.button("More", "Show six copies with linked scrolling",
-                                        self.set_split, False)
+        self.share_button = self.button("Stealth", self.set_share, self.settings.hide_from_share)
+        self.ghost_button = self.button("Nofocus", self.set_ghost, False)
+        self.split_button = self.button("More", self.set_split, False)
         self.split_button.setEnabled(False)
         for button in (self.share_button, self.ghost_button, self.split_button):
             title_row.addWidget(button)
@@ -329,7 +324,6 @@ class SupportWindow(QWidget):
         self.opacity.setMinimumWidth(56)
         self.opacity.setMaximumWidth(125)
         self.opacity.setAccessibleName("Window opacity")
-        self.opacity.setToolTip("Window opacity")
         self.opacity.valueChanged.connect(self.set_opacity)
         self.opacity_label = QLabel(
             f"{self.settings.opacity}%",
@@ -342,9 +336,7 @@ class SupportWindow(QWidget):
         title_row.addWidget(self.opacity, 1)
         title_row.addWidget(self.opacity_label)
         title_row.addStretch()
-        grip = DragGrip()
-        grip.setToolTip("Drag to move the window")
-        title_row.addWidget(grip)
+        title_row.addWidget(DragGrip())
         shell_layout.addWidget(title_bar)
 
         content = QWidget()
@@ -371,17 +363,15 @@ class SupportWindow(QWidget):
         self.status = QLabel(objectName="status", alignment=Qt.AlignmentFlag.AlignCenter)
         self.status.setWordWrap(True)
         status_layout.addWidget(self.status)
-        self.open_browser = self.button("Open in browser", "Open this document in your default browser",
-                                        self.open_document_in_browser)
+        self.open_browser = self.button("Open in browser", self.open_document_in_browser)
         status_layout.addWidget(self.open_browser, alignment=Qt.AlignmentFlag.AlignHCenter)
         layers.addWidget(self.status_panel)
         layers.setCurrentWidget(self.status_panel)
         self.status_panel.hide()
         shell_layout.addWidget(content, 1)
 
-    def button(self, text, tooltip, callback, checked=None):
+    def button(self, text, callback, checked=None):
         button = QPushButton(text)
-        button.setToolTip(tooltip)
         if checked is None:
             button.clicked.connect(callback)
         else:
@@ -621,8 +611,10 @@ class SupportWindow(QWidget):
 
 
 def main():
-    handle, already_running = native.acquire_instance()
+    handle = None
+    app_data = None
     try:
+        handle, already_running = native.acquire_instance()
         if already_running:
             return 0 if native.activate_instance() else 1
         configure_portable_paths()
@@ -634,27 +626,33 @@ def main():
         app.setApplicationDisplayName(TITLE)
         app.setFont(QFont("Segoe UI", 10))
         app_data = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation))
+        app_data.mkdir(parents=True, exist_ok=True)
+        config_file = app_data / "config.json"
+        profile = make_profile(app_data, app)
         try:
-            app_data.mkdir(parents=True, exist_ok=True)
-            config_file = app_data / "config.json"
-            profile = make_profile(app_data, app)
             window = SupportWindow(profile, config_file, Settings.read(config_file))
             try:
                 window.initialize_window()
                 return app.exec()
             finally:
                 delete(window)
-                delete(profile)
-        except Exception:
-            error = traceback.format_exc()
-            try:
-                (app_data / "startup-error.log").write_text(error, encoding="utf-8")
-            except OSError:
-                pass
-            QMessageBox.critical(None, TITLE, f"{TITLE} could not start.\n\n" + error.splitlines()[-1])
-            return 1
+        finally:
+            delete(profile)
+    except Exception:
+        error = traceback.format_exc()
+        if app_data is None:
+            app_data = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "SupportApp"
+        try:
+            app_data.mkdir(parents=True, exist_ok=True)
+            (app_data / "startup-error.log").write_text(error, encoding="utf-8")
+        except OSError:
+            pass
+        if sys.stderr is not None:
+            sys.stderr.write(error)
+        return 1
     finally:
-        native.close_handle(handle)
+        if handle:
+            native.close_handle(handle)
 
 
 if __name__ == "__main__":

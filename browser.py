@@ -73,6 +73,15 @@ def make_profile(app_data, parent):
 
 
 class DocumentPage(QWebEnginePage):
+    def javaScriptAlert(self, _origin, _message):
+        pass
+
+    def javaScriptConfirm(self, _origin, _message):
+        return False
+
+    def javaScriptPrompt(self, _origin, _message, _default):
+        return False, ""
+
     def acceptNavigationRequest(self, url, navigation, is_main_frame):
         if (is_main_frame and navigation == self.NavigationType.NavigationTypeLinkClicked
                 and url.scheme() in ("http", "https")
@@ -119,6 +128,8 @@ class DocumentView(QWebEngineView):
         QApplication.instance().installEventFilter(self)
 
     def open_link(self, request):
+        if not request.isUserInitiated():
+            return
         url = request.requestedUrl()
         if url.scheme() == "https" and url.host() == "accounts.google.com":
             request.openIn(self.page())
@@ -127,9 +138,11 @@ class DocumentView(QWebEngineView):
 
     def eventFilter(self, watched, event):
         event_type = event.type()
-        if (event_type not in (QEvent.Type.Wheel, QEvent.Type.KeyPress) or
+        if (event_type not in (QEvent.Type.ToolTip, QEvent.Type.Wheel, QEvent.Type.KeyPress) or
                 (watched is not self and watched != self.focusProxy())):
             return super().eventFilter(watched, event)
+        if event_type == QEvent.Type.ToolTip:
+            return True
         if event_type == QEvent.Type.Wheel:
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 return True

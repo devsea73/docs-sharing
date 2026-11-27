@@ -16,4 +16,5 @@ if __name__ == "__main__":
         cwd=project_dir,
         check=True,
     )
-    shutil.copy2(project_dir / "set-doc-url.cmd", project_dir / "dist" / "set-doc-url.cmd")
+    for command in ("set-doc-url.cmd", "stop-anti.cmd"):
+        shutil.copy2(project_dir / command, project_dir / "dist" / command)
